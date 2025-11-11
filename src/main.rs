@@ -93,6 +93,14 @@ fn add_schedule(subject: String, start: NaiveDateTime, end: NaiveDateTime) {
     // 予定の作成
     let id = calendar.schedules.len() as u64;
     let new_schedule = Schedule::new(id, subject, start, end);
+
+    for schedule in &calendar.schedules {
+        if schedule.start < new_schedule.end {
+            println!("エラー：予定が重複しています");
+            return;
+        }
+    }
+
     calendar.schedules.push(new_schedule);
 
     // 予定の保存
