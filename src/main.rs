@@ -25,6 +25,10 @@ impl Schedule {
             end,
         }
     }
+
+    fn intersects(&self, other: &Schedule) -> bool {
+        self.start < other.end && other.start < self.end
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,7 +99,7 @@ fn add_schedule(subject: String, start: NaiveDateTime, end: NaiveDateTime) {
     let new_schedule = Schedule::new(id, subject, start, end);
 
     for schedule in &calendar.schedules {
-        if schedule.start < new_schedule.end {
+        if schedule.intersects(&new_schedule) {
             println!("エラー：予定が重複しています");
             return;
         }
@@ -111,4 +115,55 @@ fn add_schedule(subject: String, start: NaiveDateTime, end: NaiveDateTime) {
     }
 
     println!("予定を追加しました！");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    fn naive_date_time(
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+        second: u32,
+    ) -> NaiveDateTime {
+        chrono::NaiveDate::from_ymd_opt(year, month, day)
+            .unwrap()
+            .and_hms_opt(hour, minute, second)
+            .unwrap()
+    }
+
+    #[rstest]
+    #[case(18, 15, 19, 15, true)]
+    #[case(19, 45, 20, 45, true)]
+    #[case(18, 30, 20, 15, true)]
+    #[case(20, 15, 20, 45, false)]
+    #[case(18, 15, 18, 45, false)]
+    #[case(19, 15, 19, 45, true)]
+    fn test_schedule_intersects(
+        #[case] h0: u32,
+        #[case] m0: u32,
+        #[case] h1: u32,
+        #[case] m1: u32,
+        #[case] expected: bool,
+    ) {
+        let schedule = Schedule {
+            id: 0,
+            subject: "既存予定".to_string(),
+            start: naive_date_time(2024, 1, 1, h0, m0, 0),
+            end: naive_date_time(2024, 1, 1, h1, m1, 0),
+        };
+
+        let new_schedule = Schedule {
+            id: 1,
+            subject: "新規予定".to_string(),
+            start: naive_date_time(2024, 1, 1, 19, 0, 0),
+            end: naive_date_time(2024, 1, 1, 20, 0, 0),
+        };
+
+        assert_eq!(schedule.intersects(&new_schedule), expected);
+    }
 }
