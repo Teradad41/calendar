@@ -143,6 +143,7 @@ mod tests {
     #[case(20, 15, 20, 45, false)]
     #[case(18, 15, 18, 45, false)]
     #[case(19, 15, 19, 45, true)]
+    #[case(19, 0, 20, 0, true)] // 境界値テスト
     fn test_schedule_intersects(
         #[case] h0: u32,
         #[case] m0: u32,
