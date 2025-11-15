@@ -59,45 +59,99 @@ enum Commands {
     Delete { id: u64 },
 }
 
+#[derive(thiserror::Error, Debug)]
+enum MyError {
+    #[error("ファイル操作でエラーが発生しました: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("JSON 操作でエラーが発生しました: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("予定が重複しています")]
+    ScheduleConflict,
+    #[error("予定が見つかりませんでした: (ID: {0})")]
+    ScheduleNotFound(u64),
+}
+
 fn main() {
     let options = App::parse();
 
-    match options.command {
-        Commands::List => show_list(),
+    let result = match options.command {
+        Commands::List => list_command(),
         Commands::Add {
             subject,
             start,
             end,
-        } => add_schedule(subject, start, end),
-        Commands::Delete { id } => {
-            let mut calendar = read_calendar();
-            if delete_schedule(&mut calendar, id) {
-                save_calendar(&calendar);
-            } else {
-                println!("予定が見つかりませんでした");
-            }
-        }
+        } => add_command(subject, start, end),
+        Commands::Delete { id } => delete_command(id),
+    };
+
+    if let Err(e) = result {
+        eprintln!("エラー: {}", e);
+        std::process::exit(1);
     }
 }
 
-fn read_calendar() -> Calendar {
-    let file = File::open(SCHEDULE_FILE).unwrap();
-    let reader = BufReader::new(file);
-    serde_json::from_reader(reader).unwrap()
+fn list_command() -> Result<(), MyError> {
+    let calendar = read_calendar()?;
+    show_list(&calendar);
+    Ok(())
 }
 
-fn save_calendar(calendar: &Calendar) {
-    let file = File::create(SCHEDULE_FILE).unwrap();
+fn add_command(subject: String, start: NaiveDateTime, end: NaiveDateTime) -> Result<(), MyError> {
+    let mut calendar = read_calendar()?;
+    add_schedule(&mut calendar, subject, start, end)?;
+    save_calendar(&calendar)?;
+    println!("予定を追加しました！");
+    Ok(())
+}
+
+fn delete_command(id: u64) -> Result<(), MyError> {
+    let mut calendar = read_calendar()?;
+    delete_schedule(&mut calendar, id)?;
+    save_calendar(&calendar)?;
+    println!("予定を削除しました！");
+    Ok(())
+}
+
+fn read_calendar() -> Result<Calendar, MyError> {
+    match File::open(SCHEDULE_FILE) {
+        Ok(file) => {
+            let reader = BufReader::new(file);
+            let calendar = serde_json::from_reader(reader)?;
+            Ok(calendar)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // ファイルが存在しない場合は空のカレンダーを作成して保存
+            let calendar = Calendar {
+                schedules: Vec::new(),
+            };
+            save_calendar(&calendar)?;
+            Ok(calendar)
+        }
+        Err(e) => Err(MyError::Io(e)),
+    }
+}
+
+fn save_calendar(calendar: &Calendar) -> Result<(), MyError> {
+    let file = File::create(SCHEDULE_FILE)?;
     let writer = BufWriter::new(file);
-    serde_json::to_writer(writer, &calendar).unwrap();
+    serde_json::to_writer(writer, &calendar)?;
+    Ok(())
 }
 
-fn show_list() {
-    let calendar = read_calendar();
+fn delete_schedule(calendar: &mut Calendar, id: u64) -> Result<(), MyError> {
+    for i in 0..calendar.schedules.len() {
+        if calendar.schedules[i].id == id {
+            calendar.schedules.remove(i);
+            return Ok(());
+        }
+    }
+    Err(MyError::ScheduleNotFound(id))
+}
 
-    // 予定の表示
-    println!("ID\tSTART\tEND\tSUBJECT");
-    for schedule in calendar.schedules {
+// 予定の一覧を表示する
+fn show_list(calendar: &Calendar) {
+    println!("ID\tSTART\t\t\tEND\t\t\tSUBJECT");
+    for schedule in &calendar.schedules {
         println!(
             "{}\t{}\t{}\t{}",
             schedule.id, schedule.start, schedule.end, schedule.subject
@@ -105,38 +159,24 @@ fn show_list() {
     }
 }
 
-fn add_schedule(subject: String, start: NaiveDateTime, end: NaiveDateTime) {
-    let mut calendar = read_calendar();
-
-    // 予定の作成
+// 予定を追加する
+fn add_schedule(
+    calendar: &mut Calendar,
+    subject: String,
+    start: NaiveDateTime,
+    end: NaiveDateTime,
+) -> Result<(), MyError> {
     let id = calendar.schedules.len() as u64;
     let new_schedule = Schedule::new(id, subject, start, end);
 
     for schedule in &calendar.schedules {
         if schedule.intersects(&new_schedule) {
-            println!("エラー：予定が重複しています");
-            return;
+            return Err(MyError::ScheduleConflict);
         }
     }
 
     calendar.schedules.push(new_schedule);
-
-    // 予定の保存
-    {
-        save_calendar(&calendar);
-    }
-
-    println!("予定を追加しました！");
-}
-
-fn delete_schedule(calendar: &mut Calendar, id: u64) -> bool {
-    for i in 0..calendar.schedules.len() {
-        if calendar.schedules[i].id == id {
-            calendar.schedules.remove(i);
-            return true;
-        }
-    }
-    false
+    Ok(())
 }
 
 #[cfg(test)]
@@ -216,7 +256,7 @@ mod tests {
         };
 
         // id = 0 の予定を削除
-        assert!(delete_schedule(&mut calendar, 0));
+        assert!(delete_schedule(&mut calendar, 0).is_ok());
 
         let expected = Calendar {
             schedules: vec![
@@ -237,7 +277,7 @@ mod tests {
 
         assert_eq!(expected, calendar);
         // id = 1 の予定を削除
-        assert!(delete_schedule(&mut calendar, 1));
+        assert!(delete_schedule(&mut calendar, 1).is_ok());
 
         let expected = Calendar {
             schedules: vec![Schedule::new(
@@ -251,7 +291,7 @@ mod tests {
         assert_eq!(expected, calendar);
 
         // id = 2 の予定を削除
-        assert!(delete_schedule(&mut calendar, 2));
+        assert!(delete_schedule(&mut calendar, 2).is_ok());
 
         let expected = Calendar { schedules: vec![] };
         assert_eq!(expected, calendar);
