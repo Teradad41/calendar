@@ -34,6 +34,7 @@ impl Schedule {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Calendar {
     schedules: Vec<Schedule>,
+    next_id: u64,
 }
 
 #[derive(Parser)]
@@ -123,6 +124,7 @@ fn read_calendar() -> Result<Calendar, MyError> {
             // ファイルが存在しない場合は空のカレンダーを作成して保存
             let calendar = Calendar {
                 schedules: Vec::new(),
+                next_id: 0,
             };
             save_calendar(&calendar)?;
             Ok(calendar)
@@ -166,7 +168,7 @@ fn add_schedule(
     start: NaiveDateTime,
     end: NaiveDateTime,
 ) -> Result<(), MyError> {
-    let id = calendar.schedules.len() as u64;
+    let id = calendar.next_id;
     let new_schedule = Schedule::new(id, subject, start, end);
 
     for schedule in &calendar.schedules {
@@ -176,6 +178,7 @@ fn add_schedule(
     }
 
     calendar.schedules.push(new_schedule);
+    calendar.next_id += 1;
     Ok(())
 }
 
@@ -253,6 +256,7 @@ mod tests {
                     naive_date_time(2024, 1, 1, 21, 15, 0),
                 ),
             ],
+            next_id: 3,
         };
 
         // id = 0 の予定を削除
@@ -273,6 +277,7 @@ mod tests {
                     naive_date_time(2024, 1, 1, 21, 15, 0),
                 ),
             ],
+            next_id: 3,
         };
 
         assert_eq!(expected, calendar);
@@ -286,6 +291,7 @@ mod tests {
                 naive_date_time(2024, 1, 1, 20, 15, 0),
                 naive_date_time(2024, 1, 1, 21, 15, 0),
             )],
+            next_id: 3,
         };
 
         assert_eq!(expected, calendar);
@@ -293,7 +299,10 @@ mod tests {
         // id = 2 の予定を削除
         assert!(delete_schedule(&mut calendar, 2).is_ok());
 
-        let expected = Calendar { schedules: vec![] };
+        let expected = Calendar {
+            schedules: vec![],
+            next_id: 3,
+        };
         assert_eq!(expected, calendar);
     }
 }
