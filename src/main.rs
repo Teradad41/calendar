@@ -136,7 +136,7 @@ fn read_calendar() -> Result<Calendar, MyError> {
 fn save_calendar(calendar: &Calendar) -> Result<(), MyError> {
     let file = File::create(SCHEDULE_FILE)?;
     let writer = BufWriter::new(file);
-    serde_json::to_writer(writer, &calendar)?;
+    serde_json::to_writer_pretty(writer, &calendar)?;
     Ok(())
 }
 
@@ -152,7 +152,12 @@ fn delete_schedule(calendar: &mut Calendar, id: u64) -> Result<(), MyError> {
 
 // 予定の一覧を表示する
 fn show_list(calendar: &Calendar) {
-    println!("ID\tSTART\t\t\tEND\t\t\tSUBJECT");
+    if calendar.schedules.is_empty() {
+        println!("予定がありません");
+        return;
+    }
+
+    println!("ID\t開始日時\t\t終了日時\t\t件名");
     for schedule in &calendar.schedules {
         println!(
             "{}\t{}\t{}\t{}",
