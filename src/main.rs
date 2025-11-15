@@ -55,6 +55,8 @@ enum Commands {
         /// 終了日時
         end: NaiveDateTime,
     },
+    /// 予定の削除
+    Delete { id: u64 },
 }
 
 fn main() {
@@ -67,15 +69,31 @@ fn main() {
             start,
             end,
         } => add_schedule(subject, start, end),
+        Commands::Delete { id } => {
+            let mut calendar = read_calendar();
+            if delete_schedule(&mut calendar, id) {
+                save_calendar(&calendar);
+            } else {
+                println!("予定が見つかりませんでした");
+            }
+        }
     }
 }
 
+fn read_calendar() -> Calendar {
+    let file = File::open(SCHEDULE_FILE).unwrap();
+    let reader = BufReader::new(file);
+    serde_json::from_reader(reader).unwrap()
+}
+
+fn save_calendar(calendar: &Calendar) {
+    let file = File::create(SCHEDULE_FILE).unwrap();
+    let writer = BufWriter::new(file);
+    serde_json::to_writer(writer, &calendar).unwrap();
+}
+
 fn show_list() {
-    let calendar: Calendar = {
-        let file = File::open(SCHEDULE_FILE).unwrap();
-        let reader = BufReader::new(file);
-        serde_json::from_reader(reader).unwrap()
-    };
+    let calendar = read_calendar();
 
     // 予定の表示
     println!("ID\tSTART\tEND\tSUBJECT");
@@ -88,11 +106,7 @@ fn show_list() {
 }
 
 fn add_schedule(subject: String, start: NaiveDateTime, end: NaiveDateTime) {
-    let mut calendar: Calendar = {
-        let file = File::open(SCHEDULE_FILE).unwrap();
-        let reader = BufReader::new(file);
-        serde_json::from_reader(reader).unwrap()
-    };
+    let mut calendar = read_calendar();
 
     // 予定の作成
     let id = calendar.schedules.len() as u64;
@@ -109,12 +123,20 @@ fn add_schedule(subject: String, start: NaiveDateTime, end: NaiveDateTime) {
 
     // 予定の保存
     {
-        let file = File::create(SCHEDULE_FILE).unwrap();
-        let writer = BufWriter::new(file);
-        serde_json::to_writer(writer, &calendar).unwrap()
+        save_calendar(&calendar);
     }
 
     println!("予定を追加しました！");
+}
+
+fn delete_schedule(calendar: &mut Calendar, id: u64) -> bool {
+    for i in 0..calendar.schedules.len() {
+        if calendar.schedules[i].id == id {
+            calendar.schedules.remove(i);
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -166,5 +188,72 @@ mod tests {
         };
 
         assert_eq!(schedule.intersects(&new_schedule), expected);
+    }
+
+    #[test]
+    fn test_delete_schedule() {
+        let mut calendar = Calendar {
+            schedules: vec![
+                Schedule::new(
+                    0,
+                    "既存予定".to_string(),
+                    naive_date_time(2024, 1, 1, 18, 15, 0),
+                    naive_date_time(2024, 1, 1, 19, 15, 0),
+                ),
+                Schedule::new(
+                    1,
+                    "既存予定".to_string(),
+                    naive_date_time(2024, 1, 1, 19, 45, 0),
+                    naive_date_time(2024, 1, 1, 20, 45, 0),
+                ),
+                Schedule::new(
+                    2,
+                    "既存予定".to_string(),
+                    naive_date_time(2024, 1, 1, 20, 15, 0),
+                    naive_date_time(2024, 1, 1, 21, 15, 0),
+                ),
+            ],
+        };
+
+        // id = 0 の予定を削除
+        assert!(delete_schedule(&mut calendar, 0));
+
+        let expected = Calendar {
+            schedules: vec![
+                Schedule::new(
+                    1,
+                    "既存予定".to_string(),
+                    naive_date_time(2024, 1, 1, 19, 45, 0),
+                    naive_date_time(2024, 1, 1, 20, 45, 0),
+                ),
+                Schedule::new(
+                    2,
+                    "既存予定".to_string(),
+                    naive_date_time(2024, 1, 1, 20, 15, 0),
+                    naive_date_time(2024, 1, 1, 21, 15, 0),
+                ),
+            ],
+        };
+
+        assert_eq!(expected, calendar);
+        // id = 1 の予定を削除
+        assert!(delete_schedule(&mut calendar, 1));
+
+        let expected = Calendar {
+            schedules: vec![Schedule::new(
+                2,
+                "既存予定".to_string(),
+                naive_date_time(2024, 1, 1, 20, 15, 0),
+                naive_date_time(2024, 1, 1, 21, 15, 0),
+            )],
+        };
+
+        assert_eq!(expected, calendar);
+
+        // id = 2 の予定を削除
+        assert!(delete_schedule(&mut calendar, 2));
+
+        let expected = Calendar { schedules: vec![] };
+        assert_eq!(expected, calendar);
     }
 }
